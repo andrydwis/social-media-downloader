@@ -1,4 +1,4 @@
-import os
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 app = FastAPI()
 
 # Global cookie file path
-COOKIE_FILE = "tiktok_cookies.txt"
+COOKIE_FILE = "cookies.txt"
 
 
 class VideoFormat(BaseModel):
@@ -49,20 +49,68 @@ class Metadata(BaseModel):
     )
 
 
-async def get_tiktok_cookies():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://www.tiktok.com",
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            },
+from typing import Optional
+
+import httpx
+
+# Define the cookie file path globally or pass it as a parameter
+COOKIE_FILE = "cookies.txt"
+
+
+async def get_cookies(
+    platform: str, url: Optional[str] = None, cookie_file: str = "cookies.txt"
+) -> bool:
+    """
+    Fetch cookies from the given URL and save them in Netscape HTTP Cookie File format.
+
+    Args:
+        platform (str): The platform name (e.g., "tiktok", "youtube").
+        url (Optional[str]): The URL to fetch cookies from. Defaults to None.
+        cookie_file (str): The file path to save cookies. Defaults to "cookies.txt".
+
+    Returns:
+        bool: True if cookies were successfully saved, False otherwise.
+    """
+    if not url:
+        raise ValueError("URL must be provided.")
+
+    # Validate platform
+    if platform not in {"tiktok", "youtube"}:
+        raise ValueError(
+            "Invalid platform. Supported platforms are 'tiktok' and 'youtube'."
         )
-        cookies = response.cookies
-        with open(COOKIE_FILE, "w") as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            for name, value in cookies.items():
-                f.write(f".tiktok.com\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
-        return True
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    )
+                },
+            )
+            cookies = response.cookies
+
+            # Write cookies to the file in Netscape HTTP Cookie File format
+            with open(cookie_file, "w") as f:
+                f.write("# Netscape HTTP Cookie File\n")
+                for name, value in cookies.items():
+                    domain = ".tiktok.com" if platform == "tiktok" else ".youtube.com"
+                    expiration = int((datetime.now() + timedelta(days=365)).timestamp())
+                    f.write(
+                        f"{domain}\tTRUE\t/\tFALSE\t{expiration}\t{name}\t{value}\n"
+                    )
+
+            return True
+
+    except httpx.RequestError as e:
+        print(f"HTTP request failed for URL '{url}': {e}")
+        return False
+
+    except Exception as e:
+        print(f"An unexpected error occurred while fetching cookies: {e}")
 
 
 def format_cookies(cookies_str: str | None) -> dict[str, str] | None:
@@ -94,9 +142,8 @@ async def root():
 
 @app.get("/extract-metadata/", response_model=Metadata)
 async def extract_metadata(
+    platform: str = Query(...),
     video_url: str = Query(...),
-    no_watermark: bool = Query(False),
-    refresh_cookies: bool = Query(False),
 ):
     """
     Extract metadata (e.g., title, duration, formats, streaming URLs) for a video
@@ -107,8 +154,8 @@ async def extract_metadata(
     - Audio-only formats (e.g., .m4a files) with detailed audio information (bitrate, codec, format, etc.)
     """
     # Handle cookies
-    if refresh_cookies or not os.path.exists(COOKIE_FILE):
-        if not get_tiktok_cookies():
+    if platform == "tiktok" or platform == "youtube":
+        if not await get_cookies(platform, video_url):
             raise HTTPException(500, detail="Cookie generation failed")
 
     # Define yt-dlp options
@@ -116,17 +163,20 @@ async def extract_metadata(
         "quiet": True,
         "no_warnings": True,
         "forceurl": True,  # Only fetch the URL, don't download
-        "skip_download": True,  # Ensure no files are downloaded
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        },
     }
 
-    if "tiktok.com" in video_url.lower():
+    if any(
+        domain in video_url.lower()
+        for domain in ["tiktok.com", "youtube.com", "youtu.be"]
+    ):
+        print("TikTok or YouTube URL detected")
         ydl_opts.update(
             {
-                "no_watermark": no_watermark,
+                "no_watermark": True,
                 "cookiefile": COOKIE_FILE,
-                "headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                },
             }
         )
 
