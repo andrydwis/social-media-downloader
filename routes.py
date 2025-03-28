@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
@@ -89,7 +89,7 @@ def get_tiktok_cookies():
             driver.quit()
 
 
-def format_cookies(cookies_str: str | None) -> Dict[str, str] | None:
+def format_cookies(cookies_str: str | None) -> dict[str, str] | None:
     """Format cookies from string to dictionary"""
     if not cookies_str:
         return None
@@ -109,6 +109,11 @@ def format_cookies(cookies_str: str | None) -> Dict[str, str] | None:
                 cookies[current_name + "_secure"] = True
 
     return cookies
+
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "docs": "/docs"}
 
 
 @app.get("/extract-metadata/", response_model=Metadata)
@@ -201,3 +206,9 @@ async def extract_metadata(
             raise HTTPException(
                 status_code=400, detail=f"Error processing video: {str(e)}"
             )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -37,7 +37,7 @@
 
 3. Start the FastAPI server:
    ```bash
-   poetry run uvicorn main:app --host 0.0.0.0 --port 8000
+   poetry run uvicorn routes:app --host 0.0.0.0 --port 8000
    ```
 
 4. The API will be available at `http://localhost:8000`.
@@ -48,7 +48,7 @@
 
 ### API Endpoint
 
-#### `/extract/`
+#### `/extract-metadata/`
 
 Extracts media information from a given video URL.
 
@@ -61,13 +61,14 @@ Extracts media information from a given video URL.
 **Example Request**:
 
 ```bash
-curl "http://localhost:8000/extract/?video_url=https://www.tiktok.com/@user/video/123456789&no_watermark=True"
+curl "http://localhost:8000/extract-metadata/?video_url=https://www.tiktok.com/@user/video/123456789&no_watermark=True"
 ```
 
 **Example Response**:
 
 ```json
 {
+  "platform": "TikTok",
   "title": "Funny Cat Video",
   "duration": 15,
   "thumbnail": "https://example.com/thumbnail.jpg",
@@ -105,6 +106,7 @@ curl "http://localhost:8000/extract/?video_url=https://www.tiktok.com/@user/vide
 ## Dependencies
 
 - **FastAPI**: For building the API server.
+- **uvicorn**: For running the FastAPI application.
 - **yt-dlp**: For extracting media information and downloading content.
 - **Selenium**: For automating browser interactions to fetch TikTok cookies.
 - **webdriver-manager**: For managing ChromeDriver installations.
