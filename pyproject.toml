@@ -1,0 +1,22 @@
+[project]
+name = "social-media-downloader"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "andrydwis",email = "andry.dwi.s@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard] (>=0.115.12,<0.116.0)",
+    "yt-dlp (>=2025.3.26,<2026.0.0)",
+    "selenium (>=4.30.0,<5.0.0)",
+    "webdriver-manager (>=4.0.2,<5.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
