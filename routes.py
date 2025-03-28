@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
@@ -50,22 +51,30 @@ def get_tiktok_cookies():
             driver.quit()
 
 
-@app.get("/extract/")
-async def extract(
+@app.get("/extract-metadata/")
+async def extract_metadata(
     video_url: str = Query(...),
     no_watermark: bool = Query(False),
     refresh_cookies: bool = Query(False),
 ):
-    """Main endpoint with proper cookie handling"""
+    """
+    Extract metadata (e.g., title, duration, formats, streaming URLs) for a video
+    from YouTube, Facebook, TikTok, or other supported platforms.
+
+    Includes:
+    - MP4 formats (video with or without audio)
+    - Audio-only formats (e.g., .m4a files) with detailed audio information (bitrate, codec, format, etc.)
+    """
     # Handle cookies
     if refresh_cookies or not os.path.exists(COOKIE_FILE):
         if not get_tiktok_cookies():
             raise HTTPException(500, detail="Cookie generation failed")
 
+    # Define yt-dlp options
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
-        "forceurl": True,
+        "forceurl": True,  # Only fetch the URL, don't download
     }
 
     if "tiktok.com" in video_url.lower():
@@ -79,10 +88,15 @@ async def extract(
             }
         )
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            # Extract info without downloading
             info = ydl.extract_info(video_url, download=False)
 
+            # Detect platform automatically
+            platform = info.get("extractor_key", "Unknown Platform").capitalize()
+
+            # Filter formats to include MP4 video (with or without audio) and audio-only formats
             filtered_formats = [
                 {
                     "format_id": fmt.get("format_id"),
@@ -101,7 +115,9 @@ async def extract(
                     "ext": fmt.get("ext"),  # Container format (e.g., mp4, m4a, webm)
                     "file_size": fmt.get("filesize")
                     or fmt.get("filesize_approx"),  # File size in bytes
-                    "cookies": fmt.get("cookies"),  # Cookie for the format
+                    "cookies": fmt.get(
+                        "cookies"
+                    ),  # Cookies required for downloading the format
                 }
                 for fmt in info.get("formats", [])
                 if (
@@ -115,17 +131,18 @@ async def extract(
                 and not fmt.get("url", "").endswith(".m3u8")  # Exclude .m3u8 playlists
             ]
 
-            return {
-                "title": info.get("title"),
-                "duration": info.get("duration"),
-                "thumbnail": info.get("thumbnail"),
+            # Prepare response data
+            metadata = {
+                "platform": platform,
+                "title": info.get("title", "Unknown Title"),
+                "duration": info.get("duration", "Unknown Duration"),
+                "thumbnail": info.get("thumbnail", "No Thumbnail"),
                 "formats": filtered_formats,
             }
-    except Exception as e:
-        raise HTTPException(400, detail=str(e))
 
+            return metadata
 
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error processing video: {str(e)}"
+            )
