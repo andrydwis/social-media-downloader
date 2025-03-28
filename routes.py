@@ -1,13 +1,10 @@
 import os
 from typing import Any
 
+import httpx
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 app = FastAPI()
 
@@ -52,41 +49,20 @@ class Metadata(BaseModel):
     )
 
 
-def get_tiktok_cookies():
-    """Fetch TikTok cookies as a guest using Selenium and save in correct format"""
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-
-    try:
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()), options=options
+async def get_tiktok_cookies():
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://www.tiktok.com",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            },
         )
-        driver.get("https://www.tiktok.com")
-        driver.implicitly_wait(10)
-
-        # Get cookies and format them properly
-        cookies = driver.get_cookies()
+        cookies = response.cookies
         with open(COOKIE_FILE, "w") as f:
             f.write("# Netscape HTTP Cookie File\n")
-            for cookie in cookies:
-                f.write(
-                    f"{cookie['domain']}\t"
-                    f"{'TRUE' if cookie['domain'].startswith('.') else 'FALSE'}\t"
-                    f"{cookie['path']}\t"
-                    f"{'TRUE' if cookie.get('secure') else 'FALSE'}\t"
-                    f"{cookie.get('expiry', '0')}\t"
-                    f"{cookie['name']}\t"
-                    f"{cookie['value']}\n"
-                )
+            for name, value in cookies.items():
+                f.write(f".tiktok.com\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
         return True
-    except Exception as e:
-        print(f"Cookie error: {str(e)}")
-        return False
-    finally:
-        if "driver" in locals():
-            driver.quit()
 
 
 def format_cookies(cookies_str: str | None) -> dict[str, str] | None:
@@ -140,6 +116,7 @@ async def extract_metadata(
         "quiet": True,
         "no_warnings": True,
         "forceurl": True,  # Only fetch the URL, don't download
+        "skip_download": True,  # Ensure no files are downloaded
     }
 
     if "tiktok.com" in video_url.lower():
