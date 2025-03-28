@@ -1,8 +1,9 @@
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -12,6 +13,43 @@ app = FastAPI()
 
 # Global cookie file path
 COOKIE_FILE = "tiktok_cookies.txt"
+
+
+class VideoFormat(BaseModel):
+    format_id: str | None = Field(
+        default=None, description="Unique identifier for the format"
+    )
+    resolution: str | None = Field(
+        default=None, description="Video resolution or 'audio only'"
+    )
+    url: str | None = Field(default=None, description="Direct URL to the media")
+    has_audio: bool | None = Field(
+        default=None, description="Whether the format contains audio"
+    )
+    has_video: bool | None = Field(
+        default=None, description="Whether the format contains video"
+    )
+    bitrate: float | None = Field(
+        default=None, description="Audio bitrate in bits per second"
+    )
+    audio_codec: str | None = Field(default=None, description="Audio codec used")
+    ext: str | None = Field(default=None, description="File extension/container format")
+    file_size: int | None = Field(default=None, description="File size in bytes")
+    cookies: dict[str, Any] | None = Field(
+        default=None, description="Cookies required for download"
+    )
+
+
+class Metadata(BaseModel):
+    platform: str = Field(..., description="Source platform of the video")
+    title: str = Field(..., description="Title of the video")
+    duration: float | None = Field(default=None, description="Duration in seconds")
+    thumbnail: str | None = Field(
+        default=None, description="URL to the video thumbnail"
+    )
+    formats: list[VideoFormat] = Field(
+        ..., description="Available formats for download"
+    )
 
 
 def get_tiktok_cookies():
@@ -51,7 +89,29 @@ def get_tiktok_cookies():
             driver.quit()
 
 
-@app.get("/extract-metadata/")
+def format_cookies(cookies_str: str | None) -> Dict[str, str] | None:
+    """Format cookies from string to dictionary"""
+    if not cookies_str:
+        return None
+
+    cookies = {}
+    parts = cookies_str.split("; ")
+    current_name = None
+
+    for part in parts:
+        if "=" in part:
+            name, value = part.split("=", 1)
+            if not name.lower() in ["domain", "path", "secure", "expires"]:
+                current_name = name
+                cookies[current_name] = value
+        elif part.lower() == "secure":
+            if current_name:
+                cookies[current_name + "_secure"] = True
+
+    return cookies
+
+
+@app.get("/extract-metadata/", response_model=Metadata)
 async def extract_metadata(
     video_url: str = Query(...),
     no_watermark: bool = Query(False),
@@ -106,27 +166,22 @@ async def extract_metadata(
                         else "audio only"
                     ),
                     "url": fmt.get("url"),
-                    "has_audio": fmt.get("acodec")
-                    != "none",  # Indicates whether the format has audio
-                    "has_video": fmt.get("vcodec")
-                    != "none",  # Indicates whether the format has video
-                    "bitrate": fmt.get("abr"),  # Audio bitrate in bits per second
-                    "audio_codec": fmt.get("acodec"),  # Audio codec (e.g., opus, aac)
-                    "ext": fmt.get("ext"),  # Container format (e.g., mp4, m4a, webm)
-                    "file_size": fmt.get("filesize")
-                    or fmt.get("filesize_approx"),  # File size in bytes
-                    "cookies": fmt.get(
-                        "cookies"
-                    ),  # Cookies required for downloading the format
+                    "has_audio": fmt.get("acodec") != "none",
+                    "has_video": fmt.get("vcodec") != "none",
+                    "bitrate": fmt.get("abr"),
+                    "audio_codec": fmt.get("acodec"),
+                    "ext": fmt.get("ext"),
+                    "file_size": fmt.get("filesize") or fmt.get("filesize_approx"),
+                    "cookies": format_cookies(fmt.get("cookies")),
                 }
                 for fmt in info.get("formats", [])
                 if (
                     (
                         fmt.get("ext") == "mp4" and fmt.get("vcodec") != "none"
-                    )  # MP4 video (with or without audio)
+                    )  # MP4 video
                     or (
                         fmt.get("acodec") != "none" and fmt.get("vcodec") == "none"
-                    )  # Audio-only formats
+                    )  # Audio
                 )
                 and not fmt.get("url", "").endswith(".m3u8")  # Exclude .m3u8 playlists
             ]
@@ -135,8 +190,8 @@ async def extract_metadata(
             metadata = {
                 "platform": platform,
                 "title": info.get("title", "Unknown Title"),
-                "duration": info.get("duration", "Unknown Duration"),
-                "thumbnail": info.get("thumbnail", "No Thumbnail"),
+                "duration": info.get("duration"),
+                "thumbnail": info.get("thumbnail"),
                 "formats": filtered_formats,
             }
 
